@@ -12,213 +12,274 @@ from flask import url_for
 
 from google.appengine.api import memcache
 from google.appengine.api import taskqueue
+
 from google.appengine.ext import ndb
 
+from google.net.proto.ProtocolBuffer import ProtocolBufferDecodeError
+
 from models.course import Course
-# from models import Profile
-# from models import Role
+
+from protorpc import messages
+from protorpc import message_types
+from protorpc import remote
 
 from settings import WEB_CLIENT_ID
 
 courses = Blueprint('courses', __name__)
 
+def _getCourseIndex():
+    return "Show Course Index"
+
+def _getCourseList():
+    return Course.query().fetch()
+
+def _showCourse(form):
+    """Show course object, return CourseRequest"""
+    course_wsk = getattr(form, 'websafeCourseKey')
+    try:
+        aCourse = ndb.Key(urlsafe=course_wsk).get()
+    except (TypeError) as e:
+        raise endpoints.NotFoundException(
+            'Invalid input course key string: [%s]' % course_wsk)
+    except (ProtocolBufferDecodeError) as e:
+        raise endpoints.NotFoundException(
+            'No course found with key: [%s]' % course_wsk)
+    except Exception as e:
+        raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
+
+    return aCourse
+
+def _createCourse():
+    return "Show Create Course"
+
+def _storeCourse():
+    return "Store Course"
+    """Store course object, return CourseForm."""
+
+    if not request.label:
+        raise endpoints.BadRequestException(
+            "Course 'label' field required")
+
+    data = {field.name: getattr(request, field.name) for field in request.all_fields()}
+    del data['websafeKey']
+
+    Course(**data).put()
+    return request
+
+def _editCourse():
+    return "Show edit course"
+
+def _updateCourse():
+    return "Update Course"
+
+def _deleteCourse():
+    return "Show delete course"
+
+def _destroyCourse():
+    return "Destroy course"
+
+
+###############################################################################
+#
+# web routes
+#
+
 @courses.route('/')
-def showCourseMasterDetail():
-    return "Course Master Detail"
+def showCourseIndex():
+    return _getCourseIndex()
 
 @courses.route('/<string:course_label>')
 def showCourse(course_label):
-    return "Show Course"
+    # data = request.values.to_dict()
+    # data['websafeCourseKey'] = course_label
+    setattr(request, 'websafeCourseKey', course_label)
+    return _showCourse(request)
 
 @courses.route('/create', methods=['GET', 'POST'])
 def createCourse():
     if request.method == 'POST':
-        return _storeCourse()
+        return _storeCourse(request)
 
-    return _showCreateCourseform()
+    return _createCourse()
 
-@courses.route('/<string:course_label>/update', methods=['GET', 'POST'])
-def updateCourse(course_label):
+@courses.route('/<string:course_label>/edit', methods=['GET', 'POST'])
+def editCourse(course_label):
     if request.method == 'POST':
         return _updateCourse()
 
-    return _showUpdateCourseForm()
+    return _editCourse()
 
 @courses.route('/<string:course_label>/delete', methods=['GET', 'POST'])
 def deleteCourse(course_label):
     if request.method == 'POST':
         return _destroyCourse()
 
-    return _showDeleteCourseForm()
-
-def _showDeleteCourseForm():
-    return "Show delete course form"
-
-def _showCreateCourseform():
-    return "Show Create Course Form"
-
-def _storeCourse():
-    return "Store Course"
-
-def _showUpdateCourseForm():
-    return "Show Update Course Form"
-
-def _updateCourse():
-    return "Update Course"
-
-def _destroyCourse():
-    return "Destory course"
+    return _deleteCourse()
 
 
 ###############################################################################
 #
-# Course API routes
+# API routes
 #
 
 EMAIL_SCOPE = endpoints.EMAIL_SCOPE
 API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 
+class CourseRequest(messages.Message):
+    label = messages.StringField(1)
+    description = messages.StringField(2)
 
-COURSE_GET_REQUEST = endpoints.ResourceContainer(
+class CourseResponse(messages.Message):
+    label = messages.StringField(1)
+    description = messages.StringField(2)
+    websafeKey = messages.StringField(3)
+
+class CourseListResponse(messages.Message):
+    """CourseListResponse -- multiple Course outbound form message"""
+    courses = messages.MessageField(CourseResponse, 1, repeated=True)
+
+COURSE_SHOW_REQUEST = endpoints.ResourceContainer(
     message_types.VoidMessage,
     websafeCourseKey=messages.StringField(1))
 
-COURSE_POST_REQUEST = endpoints.ResourceContainer(
-    CourseForm,
+COURSE_EDIT_REQUEST = endpoints.ResourceContainer(
+    CourseRequest,
     websafeCourseKey=messages.StringField(1))
 
-courses_api = endpoints.api(
+COURSE_DELETE_REQUEST = COURSE_SHOW_REQUEST
+
+@endpoints.api(
     name='courses',
     version='v1',
     allowed_client_ids=[WEB_CLIENT_ID],
     scopes=[EMAIL_SCOPE])
-@courses_api.api_class(resource_name='courses')
-class CoursesApi(remote.Service):
+class CoursesAPI(remote.Service):
     """Pieces Together API v0.1"""
 
-    def _copyCourseToForm(self, course):
-        """Copy relevant field from Course to CourseForm."""
-        a_course_form = CourseForm()
-        for field in a_course_form.all_fields():
+    def _copyToCourseResponse(self, course):
+        """Copy relevant field from Course to CourseRequest."""
+        response = CourseResponse()
+        for field in response.all_fields():
             if hasattr(course, field.name):
-                setattr(a_course_form, field.name, getattr(course, field.name))
+                setattr(response, field.name, getattr(course, field.name))
             elif field.name == "websafeKey":
-                setattr(a_course_form, field.name, course.key.urlsafe())
-        a_course_form.check_initialized()
-        return a_course_form
+                setattr(response, field.name, course.key.urlsafe())
+        response.check_initialized()
+        return response
 
-    def _createCourseObject(self, request):
-        """Create course object, return CourseForm."""
+    def _createCourseObject(self, form):
+        """Create course object, return CourseRequest."""
 
-        if not request.label:
+        if not form.label:
             raise endpoints.BadRequestException(
                 "Course 'label' field required")
 
-        data = {field.name: getattr(request, field.name) for field in request.all_fields()}
+        data = {field.name: getattr(form, field.name) for field in form.all_fields()}
         del data['websafeKey']
 
         Course(**data).put()
-        return request
+        return form
 
-    def _showCourseObject(self, request):
-        """Show course object, return CourseForm"""
+    # def _showCourseObject(self, form):
+    #     """Show course object, return CourseRequest"""
+    #     try:
+    #         a_course = ndb.Key(urlsafe=form.websafeCourseKey).get()
+    #     except (TypeError) as e:
+    #         raise endpoints.NotFoundException(
+    #             'Invalid input course key string: [%s]' % form.websafeCourseKey)
+    #     except (ProtocolBufferDecodeError) as e:
+    #         raise endpoints.NotFoundException(
+    #             'No course found with key: [%s]' % form.websafeCourseKey)
+    #     except Exception as e:
+    #         raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
+
+    #     return self._copyToCourseResponse(a_course)
+
+    def _updateCourseObject(self, form):
+        """Update course object, return CourseRequest"""
+
         try:
-            a_course = ndb.Key(urlsafe=request.websafeCourseKey).get()
+            a_course = ndb.Key(urlsafe=form.websafeCourseKey).get()
         except (TypeError) as e:
             raise endpoints.NotFoundException(
-                'Invalid input course key string: [%s]' % request.websafeCourseKey)
+                'Invalid input course key string: [%s]' % form.websafeCourseKey)
         except (ProtocolBufferDecodeError) as e:
             raise endpoints.NotFoundException(
-                'No course found with key: [%s]' % request.websafeCourseKey)
+                'No course found with key: [%s]' % form.websafeCourseKey)
         except Exception as e:
             raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
 
-        return self._copyCourseToForm(a_course)
+        data = {field.name: getattr(form, field.name) for field in form.all_fields()}
 
-    def _updateCourseObject(self, request):
-        """Update course object, return CourseForm"""
-
-        try:
-            a_course = ndb.Key(urlsafe=request.websafeCourseKey).get()
-        except (TypeError) as e:
-            raise endpoints.NotFoundException(
-                'Invalid input course key string: [%s]' % request.websafeCourseKey)
-        except (ProtocolBufferDecodeError) as e:
-            raise endpoints.NotFoundException(
-                'No course found with key: [%s]' % request.websafeCourseKey)
-        except Exception as e:
-            raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
-
-        data = {field.name: getattr(request, field.name) for field in request.all_fields()}
-
-        for field in request.all_fields():
-            data = getattr(request, field.name)
+        for field in form.all_fields():
+            data = getattr(form, field.name)
             if data == "":
                 delattr(a_course, field.name)
             elif data not in (None, []):
                 setattr(a_course, field.name, data)
         a_course.put()
 
-        return self._copyCourseToForm(a_course)
+        return self._copyToCourseResponse(a_course)
 
-    def _deleteCourseObject(self, request):
-        """delete course object, return CourseForm"""
+    def _deleteCourseObject(self, form):
+        """delete course object, return CourseRequest"""
 
         try:
-            a_course_key = ndb.Key(urlsafe=request.websafeCourseKey)
+            a_course_key = ndb.Key(urlsafe=form.websafeCourseKey)
             a_course = a_course_key.get()
         except (TypeError) as e:
             raise endpoints.NotFoundException(
-                'Invalid input course key string: [%s]' % request.websafeCourseKey)
+                'Invalid input course key string: [%s]' % form.websafeCourseKey)
         except (ProtocolBufferDecodeError) as e:
             raise endpoints.NotFoundException(
-                'No course found with key: [%s]' % request.websafeCourseKey)
+                'No course found with key: [%s]' % form.websafeCourseKey)
         except Exception as e:
             raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
 
         a_course_key.delete()
 
-        return self._copyCourseToForm(a_course)
+        return self._copyToCourseResponse(a_course)
 
-    @endpoints.method(message_types.VoidMessage, CourseForms,
+    @endpoints.method(message_types.VoidMessage, CourseListResponse,
         path='courses',
         http_method='GET',
-        name='listCourses')
-    def listCourses(self, request):
+        name='list')
+    def listCourses(self, form):
         """Get list of courses"""
-        courses = Course.query().fetch()
-        return CourseForms(
-            courses=[self._copyCourseToForm(course) for course in courses]
+        records = _getCourseList()
+        return CourseListResponse(
+            courses=[self._copyToCourseResponse(record) for record in records]
         )
 
-    @endpoints.method(CourseForm, CourseForm,
-        path='courses',
-        http_method='POST',
-        name='createCourse')
-    def createCourse(self, request):
-        """Create new course"""
-        return self._createCourseObject(request)
-
-    @endpoints.method(COURSE_GET_REQUEST, CourseForm,
+    @endpoints.method(COURSE_SHOW_REQUEST, CourseResponse,
         path='courses/{websafeCourseKey}',
         http_method='GET',
-        name='showCourse')
-    def showCourse(self, request):
+        name='show')
+    def showCourse(self, form):
         """Show course detail (by websafeCourseKey)"""
-        return self._showCourseObject(request)
+        record = _showCourse(form)
+        return self._copyToCourseResponse(record)
 
-    @endpoints.method(COURSE_POST_REQUEST, CourseForm,
+    @endpoints.method(CourseRequest, CourseResponse,
+        path='courses',
+        http_method='POST',
+        name='store')
+    def storeCourse(self, form):
+        """Create new course"""
+        return _storeCourse(form)
+
+    @endpoints.method(COURSE_EDIT_REQUEST, CourseResponse,
         path='courses/{websafeCourseKey}',
         http_method='PUT',
-        name='updateCourse')
-    def updateCourse(self, request):
+        name='update')
+    def updateCourse(self, form):
         """Update course detail (by websafeCourseKey)"""
-        return self._updateCourseObject(request)
+        return _updateCourse(form)
 
-    @endpoints.method(COURSE_GET_REQUEST, CourseForm,
+    @endpoints.method(COURSE_DELETE_REQUEST, CourseResponse,
         path='courses/{websafeCourseKey}',
         http_method='DELETE',
-        name='deleteCourse')
-    def deleteCourse(self, request):
-        """Delete course (by websafeCourseKey)"""
-        return self._deleteCourseObject(request)
+        name='destroy')
+    def destroyCourse(self, form):
+        """Destroy course (by websafeCourseKey)"""
+        return _destroyCourse(form)
