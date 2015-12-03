@@ -103,8 +103,17 @@ def showCourse(course_label):
     # data = request.values.to_dict()
     # data['websafeCourseKey'] = course_label
     setattr(request, 'websafeCourseKey', course_label)
-    course = _showCourse(request)
-    return jsonify(course=course.serialize)
+
+    try:
+        record = _showCourse(request)
+    except InvalidKeyString as e:
+        return e.value
+    except ObjectNotFound as e:
+        return e.value
+    except Exception as e:
+        return "%s" % e
+
+    return jsonify(course=record.serialize)
 
 @courses.route('/create', methods=['GET', 'POST'])
 def createCourse():
