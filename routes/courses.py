@@ -27,6 +27,18 @@ from settings import WEB_CLIENT_ID
 
 courses = Blueprint('courses', __name__)
 
+class InvalidKeyString(TypeError):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
+
+class ObjectNotFound(ProtocolBufferDecodeError):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
+
 def _getCourseIndex():
     return "Show Course Index"
 
@@ -38,14 +50,12 @@ def _showCourse(form):
     course_wsk = getattr(form, 'websafeCourseKey')
     try:
         aCourse = ndb.Key(urlsafe=course_wsk).get()
-    except (TypeError) as e:
-        raise endpoints.NotFoundException(
+    except TypeError as e:
+        raise InvalidKeyString(
             'Invalid input course key string: [%s]' % course_wsk)
-    except (ProtocolBufferDecodeError) as e:
-        raise endpoints.NotFoundException(
+    except ProtocolBufferDecodeError as e:
+        raise ObjectNotFound(
             'No course found with key: [%s]' % course_wsk)
-    except Exception as e:
-        raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
 
     return aCourse
 
@@ -93,7 +103,8 @@ def showCourse(course_label):
     # data = request.values.to_dict()
     # data['websafeCourseKey'] = course_label
     setattr(request, 'websafeCourseKey', course_label)
-    return _showCourse(request)
+    course = _showCourse(request)
+    return jsonify(course=course.serialize)
 
 @courses.route('/create', methods=['GET', 'POST'])
 def createCourse():
@@ -257,7 +268,15 @@ class CoursesAPI(remote.Service):
         name='show')
     def showCourse(self, form):
         """Show course detail (by websafeCourseKey)"""
-        record = _showCourse(form)
+        try:
+            record = _showCourse(form)
+        except InvalidKeyString as e:
+            raise endpoints.NotFoundException(e.value)
+        except ObjectNotFound as e:
+            raise endpoints.NotFoundException(e.value)
+        except Exception as e:
+            raise endpoints.NotFoundException('%s: %s' % (e.__class__.__name__, e))
+
         return self._copyToCourseResponse(record)
 
     @endpoints.method(CourseRequest, CourseResponse,
