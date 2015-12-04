@@ -29,16 +29,16 @@
                     <a class="dropdown-toggle" data-toggle="dropdown">My Courses <b class="caret"></b></a>
                     <ul class="dropdown-menu">
                         <% _.each(my_courses, function (course) { %>
-                            <li><a href="#course/<%= course.course_id %>"><%= course.label %></a></li>
+                            <li><a href="/course/<%= course.course_id %>"><%= course.label %></a></li>
                         <% }); %>
                         <li class="divider"></li>
-                        <li><a href="#profile/my-courses">Manage Courses</a></li>
+                        <li><a href="/profile/courses">Manage Courses</a></li>
                     </ul>
                 </li>
                 <li class="dropdown user-tool">
                     <a class="dropdown-toggle" data-toggle="dropdown"><%= user_display() %></span> <b class="caret"></b></a>
                     <ul class="dropdown-menu">
-                        <li><a href="#profile">Profile</a></li>
+                        <li><a href="/profile">Profile</a></li>
                         <li class="divider"></li>
                         <li><a id="logout_button">Logout</a></li>
                     </ul>
