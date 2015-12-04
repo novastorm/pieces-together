@@ -25,7 +25,8 @@ from protorpc import remote
 
 from settings import WEB_CLIENT_ID
 
-courses = Blueprint('courses', __name__, static_folder='static', template_folder='templates')
+courses = Blueprint('courses', __name__, static_folder='static',
+    template_folder='templates')
 
 class InvalidKeyString(TypeError):
     def __init__(self, value):
