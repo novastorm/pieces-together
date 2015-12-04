@@ -16,7 +16,8 @@ app.config['DEBUG'] = True
 app.register_blueprint(course_bp, url_prefix='/courses')
 
 @app.route('/')
+@app.route('/home')
 def showHome():
     """Return Home view"""
-    template_file = 'main.jinja2'
+    template_file = 'home_view.j2'
     return render_template(template_file)

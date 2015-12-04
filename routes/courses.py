@@ -25,7 +25,7 @@ from protorpc import remote
 
 from settings import WEB_CLIENT_ID
 
-courses = Blueprint('courses', __name__)
+courses = Blueprint('courses', __name__, static_folder='static', template_folder='templates')
 
 class InvalidKeyString(TypeError):
     def __init__(self, value):
@@ -96,7 +96,9 @@ def _destroyCourse():
 
 @courses.route('/')
 def showCourseIndex():
-    return _getCourseIndex()
+    template = "courses_list_view.j2"
+    courses = _getCourseList()
+    return render_template(template)
 
 @courses.route('/<string:course_label>')
 def showCourse(course_label):
